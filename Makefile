@@ -1,8 +1,8 @@
 all: main
 
-main: project1.l project2.y
-	lex project1.l
-	bison -d project2.y -b y
+main: lex.l yacc.y
+	lex lex.l
+	bison -d yacc.y -b y
 	g++ y.tab.c symbolTable.cpp -ll -ly -o main
 
 .PHONY: clean
