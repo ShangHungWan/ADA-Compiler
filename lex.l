@@ -30,7 +30,6 @@ id          [a-zA-Z][0-9a-zA-Z]*
 <COMMENT>.      { LIST; }
 
 boolean         { token(BOOLEAN); }
-float           { token(FLOAT); }
 integer         { token(INTEGER); }
 string          { token(STRING); }
 
@@ -65,7 +64,6 @@ true            { token(TRUE); }
 
 print           { token(PRINT); }
 println         { token(PRINTLN); }
-read            { token(READ); }
 
 and             { token(AND); }
 or              { token(OR); }
@@ -90,8 +88,6 @@ not             { token(NOT); }
 ".."            { token(RANG); }
 "("             { token(L_PARE); }
 ")"             { token(R_PARE); }
-"["             { token(L_SQUA_BRAC); }
-"]"             { token(R_SQUA_BRAC); }
 
 {id}            {
                     yylval.stringVal = strdup(yytext);
@@ -101,11 +97,6 @@ not             { token(NOT); }
 {integer}       {
                     sscanf(yytext, "%d", &yylval.intVal);
                     token(INT_VAL);
-                }
-
-{real}          {
-                    sscanf(yytext, "%f", &yylval.floatVal);
-                    token(FLOAT_VAL);
                 }
 
 \".*\"          {
@@ -119,6 +110,7 @@ not             { token(NOT); }
                         }
                     }
                     strcpy(yytext, tmp);
+                    yylval.stringVal = strdup(yytext);
                     token(STRING_VAL);
                 }
 

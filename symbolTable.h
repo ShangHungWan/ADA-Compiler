@@ -1,6 +1,5 @@
-
-#ifndef SYMBOL_H
-#define SYMBOL_H
+#ifndef SYMBOLTABLE_H
+#define SYMBOLTABLE_H
 
 #include <iostream>
 #include <string>
@@ -24,16 +23,32 @@ using namespace std;
 #define ARRAY_KIND 3
 #define FUNC_KIND 4
 
+#define GLOBAL 0
+#define LOCAL 1
+
+struct returnNode
+{
+    int value;
+    int type;
+    char *str;
+};
+
+typedef struct returnNode returnNode;
+
 class Symbol
 {
 public:
     Symbol();
-    Symbol(string, int, int);
+    Symbol(string, int, int, int, string, int, int);
     void insertArg(int);
 
     string name;
-    int type;                 // type of variable (e.g. integer, float...)
-    int kind;                 // kind of symbol (e.g. variable, constant, array...)
+    int type; // type of variable (e.g. integer, float...)
+    int kind; // kind of symbol (e.g. variable, constant, array...)
+    int value;
+    string str;
+    int scope;
+    int index;
     vector<int> argumentType; // vector of argument (only store types)
 };
 
@@ -45,7 +60,7 @@ public:
 
     Symbol *lookUp(string);
     Symbol *localLookUp(string);
-    void insert(string, int, int);
+    void insert(string, int, int, int, string = "", int = -1, int = -1);
 
     vector<Symbol *> table;
     SymbolTable *parent;

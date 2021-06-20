@@ -2,11 +2,15 @@
 
 Symbol::Symbol() {}
 
-Symbol::Symbol(string name, int type, int kind)
+Symbol::Symbol(string name, int type, int kind, int scope, string str, int value, int index)
 {
     this->name = name;
     this->type = type;
     this->kind = kind;
+    this->value = value;
+    this->scope = scope;
+    this->index = index;
+    this->str = str;
 }
 
 void Symbol::insertArg(int type)
@@ -59,8 +63,8 @@ Symbol *SymbolTable::localLookUp(string name)
     return NULL;
 }
 
-void SymbolTable::insert(string name, int type, int kind)
+void SymbolTable::insert(string name, int type, int kind, int scope, string str, int value, int index)
 {
     // insert a new symbol to this table
-    this->table.push_back(new Symbol(name, type, kind));
+    this->table.push_back(new Symbol(name, type, kind, scope, str, value, index));
 }
