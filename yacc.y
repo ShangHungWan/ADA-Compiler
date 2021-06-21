@@ -27,7 +27,6 @@ bool elseRoute;
 string fileData;
 ofstream ofs;
 
-vector<int> localVariable;
 int localVariableCounter = 0;
 int routeCounter = 0;
 bool isConstant = false;
