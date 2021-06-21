@@ -21,7 +21,6 @@ string programName;
 string lastId;
 
 stack<int> routeStack;
-int headRouteId;
 bool elseRoute;
 
 string fileData;
@@ -31,6 +30,7 @@ map<string, int> globalVariables;
 vector<int> localVariable;
 int localVariableCounter = 0;
 int routeCounter = 0;
+bool isConstant = false;
 %}
 
 /* tokens */
@@ -59,7 +59,7 @@ int routeCounter = 0;
 %token <stringVal> STRING_VAL
 %token <stringVal> ID
 
-%type <intVal> assignment_type type
+%type <intVal> assignment_type type integer_expression boolean_expression
 %type <node> expression statement function_invocation
 
 /* operators */
@@ -230,7 +230,25 @@ block_or_simple:    {
                 |   statement
                 ;
 
-loop:               WHILE boolean_expression LOOP block_or_simple ENDLOOP SEMI
+loop:               WHILE {
+                        routeStack.push(routeCounter + 1);
+                        routeStack.push(routeCounter);
+                        routeStack.push(routeCounter + 1);
+                        routeStack.push(routeCounter);
+
+                        appendLine("R" + to_string(routeStack.top()) + ":");
+                        routeStack.pop();
+
+                        routeCounter += 2;
+                    } boolean_expression LOOP {
+                        appendLine("ifeq R" + to_string(routeStack.top()));
+                        routeStack.pop();
+                    } block_or_simple ENDLOOP SEMI {
+                        appendLine("goto R" + to_string(routeStack.top()));
+                        routeStack.pop();
+                        appendLine("R" + to_string(routeStack.top()) + ":");
+                        routeStack.pop();
+                    }
                 |   FOR L_PARE ID {
                         symbol = scope->lookUp($3);
                         if (symbol == NULL) {
@@ -238,7 +256,48 @@ loop:               WHILE boolean_expression LOOP block_or_simple ENDLOOP SEMI
                         } else if (symbol->type != INT_TYPE) {
                             yyerror("\'" + string($3) + "\' is not integer.");
                         }
-                    } IN integer_expression RANG integer_expression R_PARE LOOP block_or_simple ENDLOOP SEMI
+                    } IN integer_expression {
+                        symbol = scope->lookUp($3);
+                        if (symbol->scope == GLOBAL) {
+                            appendLine("putstatic " + typeMapping(symbol->type) + " " + programName + " " + symbol->name);
+                        } else {
+                            appendLine("istore " + to_string(symbol->index));
+                        }
+                        
+                        routeStack.push(routeCounter + 1);
+                        routeStack.push(routeCounter);
+                        routeStack.push(routeCounter + 1);
+                        routeStack.push(routeCounter);
+                        
+                        appendLine("R" + to_string(routeStack.top()) + ":");
+                        routeStack.pop();
+
+                        routeCounter += 2;
+                        
+                        symbol = scope->lookUp($3);
+                        if (symbol->scope == GLOBAL) {
+                            appendLine("getstatic " + typeMapping(symbol->type) + " " + programName + " " + symbol->name);
+                        } else {
+                            appendLine("iload " + to_string(symbol->index));
+                        }
+                    } RANG integer_expression R_PARE LOOP {
+                        int routeId = routeCounter;
+                        appendLine("isub");
+                        appendLine("ifle R" + to_string(routeId));
+                        appendLine("iconst_0");
+                        appendLine("goto R" + to_string(routeId + 1));
+                        appendLine("R" + to_string(routeId) + ": iconst_1");
+                        appendLine("R" + to_string(routeId + 1) + ":");
+                        routeCounter += 2;
+
+                        appendLine("ifeq R" + to_string(routeStack.top()));
+                        routeStack.pop();
+                    } block_or_simple {
+                        appendLine("goto R" + to_string(routeStack.top()));
+                        routeStack.pop();
+                        appendLine("R" + to_string(routeStack.top()) + ":");
+                        routeStack.pop();
+                    } ENDLOOP SEMI
                 ;
 
 statements:         /* zero statement */
@@ -575,27 +634,35 @@ expression:         SUB expression %prec UMINUS {
                         $$->type = INT_TYPE;
                         $$->value = $1;
                         $$->str = "";
-                        appendLine("sipush " + to_string($1));
+                        if (!isConstant) {
+                            appendLine("sipush " + to_string($1));
+                        }
                     }
                 |   STRING_VAL {
                         $$ = (returnNode*)malloc(sizeof(returnNode*));
                         $$->type = STRING_TYPE;
                         $$->str = $1;
-                        appendLine("idc \"" + string($1) + "\"");
+                        if (!isConstant) {
+                            appendLine("idc \"" + string($1) + "\"");
+                        }
                     }
                 |   FALSE {
                         $$ = (returnNode*)malloc(sizeof(returnNode*));
                         $$->type = BOOL_TYPE;
                         $$->value = 0;
                         $$->str = "";
-                        appendLine("sipush 0");
+                        if (!isConstant) {
+                            appendLine("sipush 0");
+                        }
                     }
                 |   TRUE {
                         $$ = (returnNode*)malloc(sizeof(returnNode*));
                         $$->type = BOOL_TYPE;
                         $$->value = 1;
                         $$->str = "";
-                        appendLine("sipush 1");
+                        if (!isConstant) {
+                            appendLine("sipush 1");
+                        }
                     }
                 |   function_invocation         { $$ = $1; }
                 |   ID {
@@ -637,6 +704,7 @@ integer_expression:
                         if ($1->type != INT_TYPE) {
                             yyerror("This type isn't integer.");
                         }
+                        $$ = $1->value;
                     }
                 ;
 
@@ -645,6 +713,7 @@ boolean_expression:
                         if ($1->type != BOOL_TYPE) {
                             yyerror("This type isn't boolean.");
                         }
+                        $$ = $1->value;
                     }
                 ;
 
@@ -752,7 +821,9 @@ comma_separated_expressions:
 
 constant:           ID COLO CONSTANT ASSI {
                         lastId = $1;
+                        isConstant = true;
                     } expression SEMI {
+                        isConstant = false;
                         if (scope->localLookUp(lastId) != NULL) {
                             yyerror("\'" + string(lastId) + "\' is already declared.");
                         } else {
@@ -761,7 +832,9 @@ constant:           ID COLO CONSTANT ASSI {
                     }
                 |   ID COLO CONSTANT assignment_type ASSI {
                         lastId = $1;
+                        isConstant = true;
                     } expression SEMI {
+                        isConstant = false;
                         if (scope->localLookUp(lastId) != NULL) {
                             yyerror("\'" + lastId + "\' is already declared.");
                         } else {
