@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <stack>
+#include <regex>
 #include <map>
 
 #define Trace(t) printf(t)
@@ -26,7 +27,6 @@ bool elseRoute;
 string fileData;
 ofstream ofs;
 
-map<string, int> globalVariables;
 vector<int> localVariable;
 int localVariableCounter = 0;
 int routeCounter = 0;
@@ -79,6 +79,7 @@ program:            PROGRAM ID {
                         programName = $2;
 
                         appendLine("class " + string($2) + " {");
+                    } declare {
                         appendLine("method public static void main(java.lang.String[])");
                         appendLine("max_stack 15");
                         appendLine("max_locals 15");
@@ -124,27 +125,34 @@ procedure:          PROCEDURE ID {
                             symbol = scope->localLookUp($2);
                             SymbolTable *child = new SymbolTable($2, scope);
                             scope = child;
-                            
-                            
-                            appendLine("method public static TYPE " + scope->name + "(PARMS)");
-                            appendLine("max_stack 15");
-                            appendLine("max_locals 15");
-                            appendLine("{");
                         } else {
                             yyerror("\'" + string($2) + "\' is already declared.");
                         }
-                    } optional_formal_arguments optional_return block END ID SEMI {
+                    } optional_formal_arguments optional_return {
+                        symbol = scope->lookUp($2);
+                        string command = "method public static " + typeMapping(scope->returnType) + " " + scope->name + "(";
+                        if (symbol->argumentType.size() > 0) {
+                            for (int i = 0; i < symbol->argumentType.size() - 1; i++) {
+                                command += typeMapping(symbol->argumentType[i]) + ", ";
+                            }
+                            command += typeMapping(symbol->argumentType[symbol->argumentType.size() - 1]) + ")";
+                            appendLine(command);
+                        }
+                        appendLine("max_stack 15");
+                        appendLine("max_locals 15");
+                        appendLine("{");
+                    } declare block END ID SEMI {
+                        if (scope->returnType == NONE_TYPE) {
+                            appendLine("return");
+                        } else {
+                            appendLine("ireturn");
+                        }
+                        appendLine("}");
+                        
                         // drop table when leave
                         SymbolTable *dropScope = scope;
                         scope = scope->parent;
                         delete dropScope;
-
-                        if (scope->returnType == NONE_TYPE) {
-                            appendLine("return");
-                        } else {
-                            appendLine("TYPEreturn");
-                        }
-                        appendLine("}");
                     }
                 ;
 
@@ -153,11 +161,13 @@ type:               BOOLEAN { $$ = BOOL_TYPE; }
                 |   STRING  { $$ = STRING_TYPE; }
                 ;
 
-optional_return:    
+optional_return:    {
+                        scope->returnType = NONE_TYPE;
+                    }
                 |   RETURN type {
-                    symbol->type = $2;
-                    scope->returnType = $2;
-                }
+                        symbol->type = $2;
+                        scope->returnType = $2;
+                    }
                 ;
 
 optional_formal_arguments:
@@ -180,7 +190,7 @@ assignment_type:    COLO type {
                     }
                 ;
 
-block:              declare BEG statements END SEMI
+block:              BEG statements END SEMI
                 ;
 
 conditional:        IF boolean_expression  {
@@ -211,7 +221,7 @@ optional_else:  {
                 |   ELSE {
                     elseRoute = true;
 
-                    appendLine("goto R" + to_string(routeStack.top()) + ":");
+                    appendLine("goto R" + to_string(routeStack.top()));
                     routeStack.pop();
                     appendLine("R" + to_string(routeStack.top()) + ":");
                     routeStack.pop();
@@ -221,7 +231,7 @@ optional_else:  {
 block_or_simple:    {
                         SymbolTable *child = new SymbolTable("anonymous", scope);
                         scope = child;
-                    } block {
+                    } declare block {
                         // drop table when leave
                         SymbolTable *dropScope = scope;
                         scope = scope->parent;
@@ -259,7 +269,7 @@ loop:               WHILE {
                     } IN integer_expression {
                         symbol = scope->lookUp($3);
                         if (symbol->scope == GLOBAL) {
-                            appendLine("putstatic " + typeMapping(symbol->type) + " " + programName + " " + symbol->name);
+                            appendLine("putstatic " + typeMapping(symbol->type) + " " + programName + "." + symbol->name);
                         } else {
                             appendLine("istore " + to_string(symbol->index));
                         }
@@ -276,14 +286,18 @@ loop:               WHILE {
                         
                         symbol = scope->lookUp($3);
                         if (symbol->scope == GLOBAL) {
-                            appendLine("getstatic " + typeMapping(symbol->type) + " " + programName + " " + symbol->name);
+                            appendLine("getstatic " + typeMapping(symbol->type) + " " + programName + "." + symbol->name);
                         } else {
                             appendLine("iload " + to_string(symbol->index));
                         }
                     } RANG integer_expression R_PARE LOOP {
                         int routeId = routeCounter;
                         appendLine("isub");
-                        appendLine("ifle R" + to_string(routeId));
+                        if ($6 <= $9) {
+                            appendLine("ifle R" + to_string(routeId));
+                        } else {
+                            appendLine("ifge R" + to_string(routeId));
+                        }
                         appendLine("iconst_0");
                         appendLine("goto R" + to_string(routeId + 1));
                         appendLine("R" + to_string(routeId) + ": iconst_1");
@@ -293,6 +307,23 @@ loop:               WHILE {
                         appendLine("ifeq R" + to_string(routeStack.top()));
                         routeStack.pop();
                     } block_or_simple {
+                        symbol = scope->lookUp($3);
+                        if (symbol->scope == GLOBAL) {
+                            appendLine("getstatic " + typeMapping(symbol->type) + " " + programName + "." + symbol->name);
+                        } else {
+                            appendLine("iload " + to_string(symbol->index));
+                        }
+                        if ($6 <= $9) {
+                            appendLine("sipush 1");
+                        } else {
+                            appendLine("sipush -1");
+                        }
+                        appendLine("iadd");
+                        if (symbol->scope == GLOBAL) {
+                            appendLine("putstatic " + typeMapping(symbol->type) + " " + programName + "." + symbol->name);
+                        } else {
+                            appendLine("istore " + to_string(symbol->index));
+                        }
                         appendLine("goto R" + to_string(routeStack.top()));
                         routeStack.pop();
                         appendLine("R" + to_string(routeStack.top()) + ":");
@@ -385,6 +416,7 @@ expression:         SUB expression %prec UMINUS {
                         if ($2->type == INT_TYPE) {
                             $$->type = INT_TYPE;
                             $$->value = -$2->value;
+                            $$->str = "";
                             appendLine("ineg");
                         } else {
                             $$->type = ERROR;
@@ -395,7 +427,9 @@ expression:         SUB expression %prec UMINUS {
                         $$ = (returnNode*)malloc(sizeof(returnNode*));
                         if ($1->type == INT_TYPE && $3->type == INT_TYPE) {
                             if ($1->type == $3->type) {
+                                $$->type = INT_TYPE;
                                 $$->value = $1->value * $3->value;
+                                $$->str = "";
                                 appendLine("imul");
                             } else {
                                 $$->type = ERROR;
@@ -410,7 +444,9 @@ expression:         SUB expression %prec UMINUS {
                         $$ = (returnNode*)malloc(sizeof(returnNode*));
                         if ($1->type == INT_TYPE && $3->type == INT_TYPE) {
                             if ($1->type == $3->type && $3->value != 0) {
+                                $$->type = INT_TYPE;
                                 $$->value = $1->value / $3->value;
+                                $$->str = "";
                                 appendLine("idiv");
                             } else {
                                 $$->type = ERROR;
@@ -425,7 +461,9 @@ expression:         SUB expression %prec UMINUS {
                         $$ = (returnNode*)malloc(sizeof(returnNode*));
                         if ($1->type == INT_TYPE && $3->type == INT_TYPE) {
                             if ($1->type == $3->type) {
+                                $$->type = INT_TYPE;
                                 $$->value = $1->value + $3->value;
+                                $$->str = "";
                                 appendLine("iadd");
                             } else {
                                 $$->type = ERROR;
@@ -440,7 +478,9 @@ expression:         SUB expression %prec UMINUS {
                         $$ = (returnNode*)malloc(sizeof(returnNode*));
                         if ($1->type == INT_TYPE && $3->type == INT_TYPE) {
                             if ($1->type == $3->type) {
+                                $$->type = INT_TYPE;
                                 $$->value = $1->value - $3->value;
+                                $$->str = "";
                                 appendLine("isub");
                             } else {
                                 $$->type = ERROR;
@@ -457,6 +497,7 @@ expression:         SUB expression %prec UMINUS {
                             if ($1->type == $3->type) {
                                 $$->type = BOOL_TYPE;
                                 $$->value = $1->value < $3->value;
+                                $$->str = "";
 
                                 int routeId = routeCounter;
                                 appendLine("isub");
@@ -481,6 +522,7 @@ expression:         SUB expression %prec UMINUS {
                             if ($1->type == $3->type) {
                                 $$->type = BOOL_TYPE;
                                 $$->value = $1->value <= $3->value;
+                                $$->str = "";
 
                                 int routeId = routeCounter;
                                 appendLine("isub");
@@ -505,6 +547,7 @@ expression:         SUB expression %prec UMINUS {
                             if ($1->type == $3->type) {
                                 $$->type = BOOL_TYPE;
                                 $$->value = int($1->value > $3->value);
+                                $$->str = "";
 
                                 int routeId = routeCounter;
                                 appendLine("isub");
@@ -529,6 +572,7 @@ expression:         SUB expression %prec UMINUS {
                             if ($1->type == $3->type) {
                                 $$->type = BOOL_TYPE;
                                 $$->value = $1->value >= $3->value;
+                                $$->str = "";
 
                                 int routeId = routeCounter;
                                 appendLine("isub");
@@ -553,6 +597,7 @@ expression:         SUB expression %prec UMINUS {
                             if ($1->type == $3->type) {
                                 $$->type = BOOL_TYPE;
                                 $$->value = $1->value == $3->value;
+                                $$->str = "";
 
                                 int routeId = routeCounter;
                                 appendLine("isub");
@@ -577,6 +622,7 @@ expression:         SUB expression %prec UMINUS {
                             if ($1->type == $3->type) {
                                 $$->type = BOOL_TYPE;
                                 $$->value = $1->value != $3->value;
+                                $$->str = "";
                                 
                                 int routeId = routeCounter;
                                 appendLine("isub");
@@ -600,6 +646,7 @@ expression:         SUB expression %prec UMINUS {
                         if ($1->type == BOOL_TYPE && $3->type == BOOL_TYPE) {
                             $$->type = BOOL_TYPE;
                             $$->value = $1->value && $3->value;
+                            $$->str = "";
                             appendLine("iand");
                         } else {
                             $$->type = ERROR;
@@ -611,6 +658,7 @@ expression:         SUB expression %prec UMINUS {
                         if ($1->type == BOOL_TYPE && $3->type == BOOL_TYPE) {
                             $$->type = BOOL_TYPE;
                             $$->value = $1->value && $3->value;
+                            $$->str = "";
                             appendLine("ior");
                         } else {
                             $$->type = ERROR;
@@ -622,6 +670,7 @@ expression:         SUB expression %prec UMINUS {
                         if ($2->type == BOOL_TYPE) {
                             $$->type = BOOL_TYPE;
                             $$->value = !$2->value;
+                            $$->str = "";
                             appendLine("ixor");
                         } else {
                             $$->type = ERROR;
@@ -643,7 +692,8 @@ expression:         SUB expression %prec UMINUS {
                         $$->type = STRING_TYPE;
                         $$->str = $1;
                         if (!isConstant) {
-                            appendLine("idc \"" + string($1) + "\"");
+                            regex pattern("\"");
+                            appendLine("ldc \"" + regex_replace(string($1), pattern, "\\\"") + "\"");
                         }
                     }
                 |   FALSE {
@@ -686,7 +736,8 @@ expression:         SUB expression %prec UMINUS {
                                 } else if (symbol->type == BOOL_TYPE) {
                                     appendLine("iconst_" + to_string(symbol->value));
                                 } else if (symbol->type == STRING_TYPE) {
-                                    appendLine("idc \"" + string(symbol->str) + "\"");
+                                    regex pattern("\"");
+                                    appendLine("ldc \"" + regex_replace(string(symbol->str), pattern, "\\\"") + "\"");
                                 }
                             } else {
                                 $$->type = ERROR;
@@ -755,6 +806,13 @@ function_invocation:
                                     if (anyMismatch) {
                                         $$->type = ERROR;
                                         yyerror("\'" + string($1) + "\' parameter is not match.");
+                                    } else {
+                                        string command = "invokestatic " + typeMapping(symbol->type) + " " + programName + "." + symbol->name + "(";
+                                        for (int i = 0; i < parameter.size() - 1; i++) {
+                                            command += typeMapping(parameter[i]) + ", ";
+                                        }
+                                        command += typeMapping(parameter[parameter.size() - 1]) + ")";
+                                        appendLine(command);
                                     }
                                 } else {
                                     $$->type = ERROR;
@@ -782,7 +840,9 @@ procedure_invocation:
                             } 
                         }
                     }
-                |   ID L_PARE comma_separated_expressions R_PARE SEMI {
+                |   ID L_PARE {
+                        parameter.clear();
+                    } comma_separated_expressions R_PARE SEMI {
                         symbol = scope->lookUp($1);
                         if (symbol == NULL) {
                             yyerror("\'" + string($1) + "\' does not declared.");
@@ -804,6 +864,13 @@ procedure_invocation:
                                 }
                                 if (anyMismatch) {
                                     yyerror("\'" + string($1) + "\' parameter is not match.");
+                                } else {
+                                    string command = "invokestatic " + typeMapping(symbol->type) + " " + programName + "." + symbol->name + "(";
+                                    for (int i = 0; i < parameter.size() - 1; i++) {
+                                        command += typeMapping(parameter[i]) + ", ";
+                                    }
+                                    command += typeMapping(parameter[parameter.size() - 1]) + ")";
+                                    appendLine(command);
                                 }
                             }
                         }
@@ -853,7 +920,6 @@ variable:           ID SEMI {
                             int index = -1;
                             if (scope->parent == NULL) {
                                 appendLine("field static int " + string($1));
-                                globalVariables[$1] = -1;
                             } else {
                                 index = localVariableCounter++;
                             }
@@ -867,7 +933,6 @@ variable:           ID SEMI {
                             int index = -1;
                             if (scope->parent == NULL) {
                                 appendLine("field static " + typeMapping($2) + " " + string($1));
-                                globalVariables[$1] = -1;
                             } else {
                                 index = localVariableCounter++;
                             }
@@ -883,7 +948,6 @@ variable:           ID SEMI {
                             int index = -1;
                             if (scope->parent == NULL) {
                                 appendLine("field static " + typeMapping($4->type) + " " + lastId + " = " + to_string($4->value));
-                                globalVariables[lastId] = $4->value;
                             } else {
                                 // appendLine("sipush " + to_string($3->value));
                                 appendLine("istore " + to_string(localVariableCounter));
@@ -904,7 +968,6 @@ variable:           ID SEMI {
                                 int index = -1;
                                 if (scope->parent == NULL) {
                                     appendLine("field static " + typeMapping($2) + " " + lastId + " = " + to_string($5->value));
-                                    globalVariables[lastId] = $5->value;
                                 } else {
                                     // appendLine("sipush " + to_string($4->value));
                                     appendLine("istore " + to_string(localVariableCounter));
@@ -922,6 +985,8 @@ string typeMapping(int type) {
         return "int";
     } else if (type == BOOL_TYPE) {
         return "boolean";
+    } else if (type == NONE_TYPE) {
+        return "void";
     } else {
         return "";
     }
