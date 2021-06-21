@@ -3,5 +3,4 @@ y.tab.*
 lex.yy.c
 *.jasm
 settings.json
-javaaPortable/
 *.class
